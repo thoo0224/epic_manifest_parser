@@ -1,0 +1,15 @@
+[package]
+name = "epic_manifest_parser_test"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+epic_manifest_parser = { path="../epic_manifest_parser" }
+tokio = { version = "1.17.0", features = ["full"] }
+threadpool = "1.8.1"
+dotenv = "0.15.0"
+
+simple_logger = { version = "2.1.0", features = ["timestamps", "colors"] }
+log = "0.4.16"

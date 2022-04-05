@@ -1,0 +1,5 @@
+[workspace]
+members = [
+    "src/epic_manifest_parser",
+    "src/epic_manifest_parser_test"
+]
