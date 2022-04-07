@@ -20,7 +20,6 @@ pub mod chunk;
 pub mod manifest;
 pub mod auth;
 mod http;
-mod ext;
 
 use crate::auth::{ClientToken, Device, AuthResponse, ExchangeCode};
 
