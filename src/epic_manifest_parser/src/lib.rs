@@ -19,7 +19,8 @@ use std::path::{PathBuf, Path};
 pub mod chunk;
 pub mod manifest;
 pub mod auth;
-pub mod http;
+mod http;
+mod ext;
 
 use crate::auth::{ClientToken, Device, AuthResponse, ExchangeCode};
 

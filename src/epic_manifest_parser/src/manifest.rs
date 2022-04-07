@@ -4,7 +4,8 @@ use string_builder::Builder as StringBuilder;
 use serde_json::Value;
 use miniz_oxide::inflate::decompress_to_vec_zlib;
 
-use bytes::Buf;
+use byteorder::ReadBytesExt;
+use thoo_readext::ReadExt;
 use http::Uri;
 
 use std::collections::HashMap;
@@ -26,65 +27,6 @@ const EMANIFEST_META_VERSION_LATEST: u8 = EMANIFEST_META_VERSION_SERIALIZES_BUIL
 
 type ByteCursor = Cursor<Vec<u8>>;
 
-trait CursorExt {
-    fn read_fstring(&mut self) -> Result<String>;
-
-    fn read_tarray<T, F>(&mut self, serialize: F) -> Result<Vec<T>>
-    where F: Fn(&mut Self) -> T;
-
-    fn read_sized_tarray<T, F>(&mut self, serialize: F, length: usize) -> Result<Vec<T>>
-    where F: Fn(&mut Self) -> T;
-
-}
- 
-impl CursorExt for Cursor<Vec<u8>> {
-    fn read_fstring(&mut self) -> Result<String> {
-        let length = self.get_i32_le();
-        if length == 0 {
-            return Ok(String::from(""));
-        }
-
-        if length < 0  {
-            if length == i32::MIN {
-                panic!("Archive is corrupted.")
-            }
-
-            let len = -length * 2;
-            let mut buffer: Vec<u8> = vec![0; usize::try_from(len)?];
-            self.read_exact(&mut buffer)?;
-
-            //return Ok(String::from_utf8(buffer)?);
-            panic!("Unicode FString's are not supported yet.");
-        }
-
-        let mut buffer = vec![0u8; usize::try_from(length)?];
-        self.read_exact(&mut buffer)?;
-
-        let buffer = buffer[0..buffer.len()-1].to_vec();
-
-        let result = String::from_utf8(buffer)?;
-        Ok(result)
-    }
-
-    fn read_tarray<T, F>(&mut self, serialize: F) -> Result<Vec<T>>
-    where F: Fn(&mut Self) -> T {
-        let length = self.get_i32_le();
-        self.read_sized_tarray(serialize, usize::try_from(length)?)
-    }
-
-    fn read_sized_tarray<T, F>(&mut self, serialize: F, length: usize) -> Result<Vec<T>>
-    where F: Fn(&mut Self) -> T {
-        let mut result: Vec<T> =  Vec::with_capacity(length);
-        for _ in 0..length {
-            let item = serialize(self);
-            result.push(item);
-        }
-    
-        Ok(result)
-    }
-
-}
-
 // todo: move to other file
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FGuid {
@@ -96,18 +38,21 @@ pub struct FGuid {
 
 impl FGuid {
 
-    pub fn new(reader: &mut impl Buf) -> Self {
-        let a = reader.get_u32_le();
-        let b = reader.get_u32_le();
-        let c = reader.get_u32_le();
-        let d = reader.get_u32_le();
+    pub fn new<R>(reader: &mut R) -> Result<Self> 
+    where 
+        R: ReadBytesExt 
+    {
+        let a = reader.read_u32_le()?;
+        let b = reader.read_u32_le()?;
+        let c = reader.read_u32_le()?;
+        let d = reader.read_u32_le()?;
 
-        Self {
+        Ok(Self {
             a,
             b,
             c,
             d
-        }
+        })
     }
 
 }
@@ -240,16 +185,16 @@ pub struct Manifest {
 impl Manifest {
     pub fn new(data: Vec<u8>, options: ManifestOptions) -> Result<Self> {
         let mut cursor = Cursor::new(data);
-        let magic = cursor.get_u32_le();
+        let magic = cursor.read_u32_le()?;
         assert!(magic == MANIFEST_HEADER_MAGIC, "JSON manifests are not supported.");
 
-        let header_size = cursor.get_i32_le();
-        let _data_size_uncompressed = cursor.get_i32_le();
-        let data_size_compressed = cursor.get_i32_le();
+        let header_size = cursor.read_i32_le()?;
+        let _data_size_uncompressed = cursor.read_i32_le()?;
+        let data_size_compressed = cursor.read_i32_le()?;
         cursor.seek(SeekFrom::Current(20))?; // Hashes
 
-        let storage_flags = cursor.get_u8();
-        let _version = cursor.get_i32_le();
+        let storage_flags = cursor.read_u8()?;
+        let _version = cursor.read_i32_le()?;
         cursor.seek(SeekFrom::Start(u64::try_from(header_size)?))?;
     
         let pos = usize::try_from(cursor.position())?;
@@ -283,17 +228,17 @@ impl Manifest {
 
         let mut cursor = Cursor::new(data);
         let start_pos = cursor.position();
-        let data_size = cursor.get_i32_le();
-        let data_version = cursor.get_u8();
+        let data_size = cursor.read_i32_le()?;
+        let data_version = cursor.read_u8()?;
         if data_version >= EMANIFEST_META_VERSION_ORIGINAL {
-            let _feature_level = cursor.get_i32();
-            let _is_file_data = cursor.get_u8() != 0x00;
-            app_id = cursor.get_i32_le();
+            let _feature_level = cursor.read_i32_le()?;
+            let _is_file_data = cursor.read_u8()? != 0x00;
+            app_id = cursor.read_i32_le()?;
             app_name = cursor.read_fstring()?;
             build_version = cursor.read_fstring()?;
             launch_exe = cursor.read_fstring()?;
             launch_command = cursor.read_fstring()?;
-            prereq_ids = cursor.read_tarray(|r| r.read_fstring().unwrap())?;
+            prereq_ids = cursor.read_array(|r| r.read_fstring().unwrap())?;
             prereq_name = cursor.read_fstring()?;
             prereq_path = cursor.read_fstring()?;
             prereq_args = cursor.read_fstring()?;
@@ -310,16 +255,16 @@ impl Manifest {
 
         cursor.seek(SeekFrom::Start(start_pos + u64::try_from(data_size)?))?;
         let start_pos = cursor.position();      
-        let data_size = cursor.get_i32_le();
-        let data_version = cursor.get_u8();
+        let data_size = cursor.read_i32_le()?;
+        let data_version = cursor.read_u8()?;
         if data_version >= EMANIFEST_META_VERSION_ORIGINAL {
-            let count = cursor.get_i32_le();
+            let count = cursor.read_i32_le()?;
             let count_size = usize::try_from(count)?;
 
-            let guids = cursor.read_sized_tarray(FGuid::new, count_size)?;
+            let guids = cursor.read_array_with_length(|r| FGuid::new(r).unwrap(), count)?;
         
             chunk_hashes = HashMap::with_capacity(count_size);
-            let hash_values = cursor.read_sized_tarray(ByteCursor::get_u64_le, count_size)?;
+            let hash_values = cursor.read_array_with_length(|r| r.read_u64_le().unwrap(), count)?;
             for i in 0..count {
                 let i = usize::try_from(i)?;
                 let guid = guids[i];
@@ -350,7 +295,7 @@ impl Manifest {
             cursor.seek(SeekFrom::Current((count * 4).into()))?;
 
             chunk_filesizes = HashMap::with_capacity(count_size);
-            let file_sizes = cursor.read_sized_tarray(ByteCursor::get_u64_le, count_size)?;
+            let file_sizes = cursor.read_array_with_length(|r| r.read_u64_le().unwrap(), count)?;
             for i in 0..count {
                 let i = usize::try_from(i)?;
                 let guid = guids[i];
@@ -363,10 +308,10 @@ impl Manifest {
 
         cursor.seek(SeekFrom::Start(start_pos + u64::try_from(data_size)?))?;
         let start_pos = cursor.position();
-        let data_size = cursor.get_i32_le();
-        let data_version = cursor.get_u8();
+        let data_size = cursor.read_i32_le()?;
+        let data_version = cursor.read_u8()?;
         if data_version >= EMANIFEST_META_VERSION_ORIGINAL {
-            let count = cursor.get_i32_le();
+            let count = cursor.read_i32_le()?;
             let count_size = usize::try_from(count)?;
             file_manifests_builders = Vec::with_capacity(count_size);
 
@@ -376,7 +321,7 @@ impl Manifest {
             }
 
             for _ in 0..count { // SymlinkTarget
-                let len = cursor.get_i32_le();
+                let len = cursor.read_i32_le()?;
                 cursor.seek(SeekFrom::Current(i64::try_from(len)?))?;
             }
 
@@ -393,12 +338,12 @@ impl Manifest {
             cursor.seek(SeekFrom::Current(count.into()))?; // FileList
 
             for file in &mut file_manifests_builders {
-                let install_tags = cursor.read_tarray(|r| r.read_fstring().unwrap())?;
+                let install_tags = cursor.read_array(|r| r.read_fstring().unwrap())?;
                 file.set_install_tags(install_tags);
             }
 
             for file in &mut file_manifests_builders {
-                let chunk_parts = cursor.read_tarray(FileChunkPart::new)?;
+                let chunk_parts = cursor.read_array(|r| FileChunkPart::new(r).unwrap())?;
                 file.set_chunk_parts(chunk_parts);
             }
         }
@@ -407,14 +352,14 @@ impl Manifest {
 
         cursor.seek(SeekFrom::Start(start_pos + u64::try_from(data_size)?))?;
         let _start_pos = cursor.position();
-        let _data_size = cursor.get_i32_le();
-        let data_version = cursor.get_u8();
+        let _data_size = cursor.read_i32_le()?;
+        let data_version = cursor.read_u8()?;
         if data_version > EMANIFEST_META_VERSION_ORIGINAL {
-            let count = cursor.get_i32_le();
+            let count = cursor.read_i32_le()?;
             custom_fields = HashMap::with_capacity(usize::try_from(count)?);
 
-            let keys = cursor.read_tarray(|r| r.read_fstring().unwrap())?;
-            let values = cursor.read_tarray(|r| r.read_fstring().unwrap())?;
+            let keys = cursor.read_array(|r| r.read_fstring().unwrap())?;
+            let values = cursor.read_array(|r| r.read_fstring().unwrap())?;
 
             for i in 0..count {
                 let i = usize::try_from(i)?;

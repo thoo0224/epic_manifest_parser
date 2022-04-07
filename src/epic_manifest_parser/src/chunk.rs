@@ -1,5 +1,6 @@
 use miniz_oxide::inflate::decompress_to_vec_zlib;
-use bytes::Buf;
+use byteorder::ReadBytesExt;
+use thoo_readext::ReadExt;
 
 use std::io::{Cursor, Seek, SeekFrom};
 use std::collections::HashMap;
@@ -43,18 +44,18 @@ pub struct FileChunkPart {
 }
 
 impl FileChunkPart {
-    pub fn new(reader: &mut Cursor<Vec<u8>>) -> Self {
+    pub fn new(reader: &mut Cursor<Vec<u8>>) -> Result<Self> {
         reader.seek(SeekFrom::Current(4)).unwrap();
 
-        let guid = FGuid::new(reader);
-        let offset = reader.get_i32_le();
-        let size = reader.get_i32_le();
+        let guid = FGuid::new(reader)?;
+        let offset = reader.read_i32_le()?;
+        let size = reader.read_i32_le()?;
 
-        Self {
+        Ok(Self {
             guid,
             offset,
             size
-        }
+        })
     }
 }
 
@@ -188,10 +189,10 @@ impl FileManifest {
         let mut cursor = Cursor::new(data);
 
         cursor.seek(SeekFrom::Start(8))?;
-        let header_size = cursor.get_i32_le();
+        let header_size = cursor.read_i32_le()?;
 
         cursor.seek(SeekFrom::Start(40))?;
-        let is_compressed = cursor.get_u8() == 1;
+        let is_compressed = cursor.read_u8()? == 1;
         cursor.seek(SeekFrom::Start(u64::try_from(header_size)?))?;
 
         let pos_size = usize::try_from(cursor.position())?;
