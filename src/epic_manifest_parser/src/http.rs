@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
-use hyper::{Client, client::HttpConnector, Body, body::HttpBody};
-use hyper::{Request};
+use hyper::{Request, Client, client::HttpConnector, Body, body::HttpBody};
 use hyper_tls::HttpsConnector;
 
 use crate::Result;

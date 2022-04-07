@@ -85,6 +85,7 @@ impl CursorExt for Cursor<Vec<u8>> {
 
 }
 
+// todo: move to other file
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FGuid {
     pub a: u32,

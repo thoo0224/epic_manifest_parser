@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, mpsc, Mutex};
 
-use crate::{manifest::FGuid, http::HttpService}; // in an other file maybe?
+use crate::{manifest::FGuid, http::HttpService}; // in an other file
 use crate::Result;
 
 #[derive(Debug)]
@@ -140,6 +140,7 @@ impl FileManifest {
         let mut result: Vec<u8> = vec![0u8; total_size];
         let (tx, rx) = mpsc::channel();
 
+        // todo: pool
         {
             let sender = Arc::new(Mutex::new(tx));
             for download in downloads {
