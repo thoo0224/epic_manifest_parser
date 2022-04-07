@@ -1,10 +1,10 @@
 use miniz_oxide::inflate::decompress_to_vec_zlib;
 use bytes::Buf;
 
-use std::io::{Cursor, Seek, SeekFrom, Write};
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::io::{Cursor, Seek, SeekFrom};
 use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::{Arc, mpsc, Mutex};
 
 use crate::{manifest::FGuid, http::HttpService}; // in an other file maybe?
 use crate::Result;
@@ -75,6 +75,29 @@ impl ManifestContext {
     }
 }
 
+pub struct ChunkDownload {
+    pub uri: String,
+    pub offset: usize,
+    pub size: usize,
+    pub file_name: String,
+    pub position: usize
+}
+
+impl ChunkDownload {
+    pub fn new(part: &FileChunkPart, context: Arc<ManifestContext>, position: usize) -> Self {
+        let chunk = context.chunks.get(&part.guid).unwrap();
+        Self {
+            uri: chunk.uri.clone(),
+            file_name: chunk.file_name.clone(),
+            offset: usize::try_from(part.offset).unwrap(),
+            size: usize::try_from(part.size).unwrap(),
+            position
+        }
+    }
+}
+
+type ChunkDownloadResult = (ChunkDownload, Vec<u8>);
+
 #[derive(Debug)]
 pub struct FileManifest {
     pub name: String,
@@ -104,34 +127,62 @@ impl FileManifest {
     }
 
     pub async fn save(&self) -> Result<Vec<u8>> {
-        let mut result: Vec<u8> = Vec::new(); // todo
-
+        let mut downloads = Vec::with_capacity(self.chunk_parts.len());
+        let mut position = 0;
         for chunk_part in &self.chunk_parts {
-            let chunk = self.context.chunks.get(&chunk_part.guid).unwrap();
-            let chunk_data = self.read_chunk(chunk, self.context.http.clone()).await?;
+            let download = ChunkDownload::new(chunk_part, self.context.clone(), position);
+            position += download.size;
 
-            let offset = usize::try_from(chunk_part.offset)?;
-            let size = usize::try_from(chunk_part.size)?;
-            let data = &chunk_data.as_slice()[offset..offset+size];
-            result.write(data)?;
+            downloads.push(download);
+        }
+        
+        let total_size: usize = downloads.iter().map(|f| f.size).sum();
+        let mut result: Vec<u8> = vec![0u8; total_size];
+        let (tx, rx) = mpsc::channel();
+
+        {
+            let sender = Arc::new(Mutex::new(tx));
+            for download in downloads {
+
+                let future = Self::download_chunk(self.context.clone(), download, sender.clone());
+                tokio::spawn(future);
+            }
+        }
+
+        while let Ok((download, data)) = rx.recv() {
+            let start = download.offset;
+            let end = start + download.size;
+            let data = &data.as_slice()[start..end];
+            let block_ref: &mut [u8] = &mut result.as_mut();
+            let block = &mut block_ref[download.position..download.position+download.size];
+
+            block.copy_from_slice(data);
         }
 
         Ok(result)
     }
 
-    // todo: create dirs
-    pub async fn read_chunk(&self, chunk: &FileChunk, http: Arc<HttpService>) -> Result<Vec<u8>> {
-        if let Some(cache_dir) = &self.context.cache_dir {
+    async fn download_chunk(context: Arc<ManifestContext>, download: ChunkDownload, sender: Arc<Mutex<mpsc::Sender<ChunkDownloadResult>>>) {
+        Self::download_chunk_result(context, download, sender).await.unwrap();
+    }
+
+    async fn download_chunk_result(context: Arc<ManifestContext>, download: ChunkDownload, sender: Arc<Mutex<mpsc::Sender<ChunkDownloadResult>>>)
+        -> Result<()> {
+        if let Some(cache_dir) = &context.cache_dir {
             let mut path = PathBuf::new();
             path.push(cache_dir);
-            path.push(&chunk.file_name);
+            path.push(&download.file_name);
 
             if path.as_path().exists() {
-                return Ok(std::fs::read(path)?);
+                let download: ChunkDownloadResult = (download, std::fs::read(path)?);
+                let sender = sender.lock().unwrap();
+                sender.send(download)?;
+            
+                return Ok(());
             }
         }
 
-        let data = http.get(&chunk.uri).await?;
+        let data = context.http.get(&download.uri).await?;
         let size = data.len();
         let mut cursor = Cursor::new(data);
 
@@ -153,15 +204,19 @@ impl FileManifest {
             _result = compressed_data.to_vec();
         }
 
-        if let Some(cache_dir) = &self.context.cache_dir {
+        if let Some(cache_dir) = &context.cache_dir {
             let mut path = PathBuf::new();
             path.push(cache_dir);
-            path.push(&chunk.file_name);
+            path.push(&download.file_name);
 
             std::fs::write(path, &_result)?;
         }
 
-        Ok(_result)
+        let download: ChunkDownloadResult = (download, _result);
+        let sender = sender.lock().unwrap();
+        sender.send(download)?;
+
+        Ok(())
     }
 
 }

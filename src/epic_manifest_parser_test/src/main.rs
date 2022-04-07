@@ -34,17 +34,16 @@ async fn main() -> Result<()> {
     let manifest = Manifest::new(manifest_data, ManifestOptions::new(CHUNK_BASE_URI, Some(String::from("cached_chunks"))))?;
     log::info!("Done.");
 
-    for file in manifest.file_manifests.into_iter().filter(|f| f.name.ends_with(".upk")) {
+    for file in manifest.file_manifests.into_iter().filter(|f| f.name.ends_with("T_SF.upk")) {
         let file_name = Path::new(&file.name).file_name().unwrap().to_str().unwrap();
-        let data = file.save().await?;
+        let data = file.save().await.unwrap();
         log::info!("downloaded {:?}", file_name);
-
+    
         let mut output = PathBuf::new();
         output.push("output");
         output.push(file_name);
-
-        std::fs::write(output, data)?;
+        std::fs::write(output, data).unwrap();
     }
     
-    Ok(())
+    loop { }
 }

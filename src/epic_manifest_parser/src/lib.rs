@@ -16,7 +16,6 @@ use serde::Deserialize;
 use std::fmt::Display;
 use std::path::{PathBuf, Path};
 
-pub mod spool;
 pub mod chunk;
 pub mod manifest;
 pub mod auth;

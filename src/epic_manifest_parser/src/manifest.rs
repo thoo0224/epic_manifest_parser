@@ -333,7 +333,7 @@ impl Manifest {
                 let guid = guids[i];
                 let offset = sha_offset + (i*20);
                 let data = &cursor.get_ref()[offset..offset + 20];
-                chunk_shas.insert(guid, hex::encode_upper(data));
+                chunk_shas.insert(guid, format!("{:X?}", data));
             }
             cursor.seek(SeekFrom::Current((count * 20).into()))?;
 
