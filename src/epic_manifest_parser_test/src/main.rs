@@ -3,15 +3,22 @@ use std::path::{Path, PathBuf};
 use log::Level;
 use simple_logger::init_with_level;
 
-use epic_manifest_parser::auth::{Device, FORTNITE_ANDROID_GAME_CLIENT, LAUNCHER_APP_CLIENT2};
 use epic_manifest_parser::manifest::{Manifest, ManifestOptions};
 use epic_manifest_parser::{EpicGamesClient, Result};
+use epic_manifest_parser::auth::{Device, ClientToken};
+
+use lazy_static::lazy_static;
 
 const MANIFESTINFO_URL: &str =
      "https://launcher-public-service-prod06.ol.epicgames.com/launcher/api/public/assets/v2/platform/Windows/namespace/9773aa1aa54f4f7b80e44bef04986cea/catalogItem/530145df28a24424923f5828cc9031a1/app/Sugar/label/Live";
 
 const CHUNK_BASE_URI: &str = 
     "http://epicgames-download1.akamaized.net/Builds/Org/o-98larctxyhn55kqjq5xjb9wzjl9hf9/e6bcca5b37d0457ca881aec508205542/default/ChunksV4/";
+
+lazy_static! {
+    pub static ref FORTNITE_ANDROID_GAME_CLIENT: ClientToken = ClientToken::new("3f69e56c7649492c8cc29f1af08a8a12", "b51ee9cb12234f50a69efa67ef53812e");
+    pub static ref LAUNCHER_APP_CLIENT2: ClientToken = ClientToken::new("34a02cf8f4414e29b15921876da36f9a", "daafbccc737745039dffe53d94fc76cf");
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
